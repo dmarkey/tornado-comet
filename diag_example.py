@@ -7,8 +7,10 @@ class DiagSDKListener(Listener):
 
     def work(self, item):
         time.sleep(10)
-        item.send_result("Thanks")
+        item.unauthorized("Not authorized")
 
+    def on_failure(self, message):
+        print "Message failed"
 
 if __name__ == "__main__":
 

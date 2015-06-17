@@ -1,37 +1,31 @@
 import json
 import redis
 import threading
-import time
 
 redis_pub = redis.Redis()
 
 
-
-
-
-class TalkBackResult(object):
-
-    def __init__(self, request):
-        self.request = request
-
-    def finish(self, result):
-        redis_pub.publish("/pushback_outgoing/" + self.request.get_uuid(), result)
-
-
 class TalkBackRequest(object):
-
-    def __init__(self, request):
+    def __init__(self, request, on_failure=None):
         self.request_data = request
+        self.on_failure = on_failure
 
     def get_uuid(self):
         return self.request_data['uuid']
 
-    def send_result(self, payload):
-        TalkBackResult(self).finish(payload)
+    def finish(self, result, status=200):
+        wrapper = {'result_status': status, 'result_payload': result}
+        success = redis_pub.publish("/pushback_outgoing/" +
+                                    self.get_uuid(), json.dumps(wrapper))
+
+        if not success and self.on_failure is not None:
+            self.on_failure(wrapper)
+
+    def unauthorized(self, message=None):
+        self.finish(message, status=401)
 
 
 class Listener(threading.Thread):
-
     service_name = None
 
     def __init__(self):
@@ -42,6 +36,8 @@ class Listener(threading.Thread):
         self.pubsub = self.redis.pubsub()
         self.pubsub.subscribe("/pushback_incoming/" + self.service_name)
 
+    def on_failure(self, message):
+        pass
 
     def process_incoming(self, item):
         print item
@@ -50,7 +46,7 @@ class Listener(threading.Thread):
         except TypeError:
             return
 
-        request = TalkBackRequest(incoming)
+        request = TalkBackRequest(incoming, on_failure=self.on_failure)
 
         self.work(request)
 
