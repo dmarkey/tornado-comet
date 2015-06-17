@@ -30,7 +30,7 @@ class Listener(threading.Thread):
 
     def __init__(self):
         if not self.service_name:
-            raise Exception("Please subclass and define service")
+            raise Exception("Please subclass and define service_name")
         threading.Thread.__init__(self)
         self.redis = redis.Redis()
         self.pubsub = self.redis.pubsub()
@@ -40,7 +40,6 @@ class Listener(threading.Thread):
         pass
 
     def process_incoming(self, item):
-        print item
         try:
             incoming = json.loads(item)
         except TypeError:
