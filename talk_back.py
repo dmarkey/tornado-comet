@@ -10,6 +10,11 @@ class TalkBackRequest(object):
         self.request_data = request
         self.on_failure = on_failure
 
+    def serialize(self):
+        return json.dumps(self.request_data)
+
+
+
     def get_uuid(self):
         return self.request_data['uuid']
 
@@ -25,13 +30,15 @@ class TalkBackRequest(object):
         self.finish(message, status=401)
 
 
-class Listener(threading.Thread):
+class IncomingProcessor(object):
     service_name = None
+
+    def deserialize(self, payload):
+        return TalkBackRequest(request=json.loads(payload), on_failure=self.on_failure)
 
     def __init__(self):
         if not self.service_name:
             raise Exception("Please subclass and define service_name")
-        threading.Thread.__init__(self)
         self.redis = redis.Redis()
         self.pubsub = self.redis.pubsub()
         self.pubsub.subscribe("/pushback_incoming/" + self.service_name)
@@ -46,8 +53,9 @@ class Listener(threading.Thread):
             return
 
         request = TalkBackRequest(incoming, on_failure=self.on_failure)
-
-        self.work(request)
+        t = threading.Thread(target=self.work, args=(request, ))
+        t.daemon = True
+        t.start()
 
     def run(self):
         for item in self.pubsub.listen():
