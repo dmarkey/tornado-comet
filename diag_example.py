@@ -2,7 +2,7 @@ import time
 from talk_back import IncomingProcessor
 
 
-class DiagSDKListener(IncomingProcessor):
+class DiagSDKProcessor(IncomingProcessor):
     service_name = "diag_sdk"
 
     def work(self, item):
@@ -22,4 +22,4 @@ class DiagSDKListener(IncomingProcessor):
 
 if __name__ == "__main__":
 
-    DiagSDKListener().run()
+    DiagSDKProcessor().run()

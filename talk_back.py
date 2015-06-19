@@ -13,8 +13,6 @@ class TalkBackRequest(object):
     def serialize(self):
         return json.dumps(self.request_data)
 
-
-
     def get_uuid(self):
         return self.request_data['uuid']
 
