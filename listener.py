@@ -1,3 +1,5 @@
+from tornado import websocket
+
 __author__ = 'dmarkey'
 import json
 import hashlib
@@ -9,32 +11,51 @@ from tornado.web import RequestHandler, asynchronous
 import logging
 logging.basicConfig(filename="logfile.txt")
 logging.getLogger().addHandler(logging.StreamHandler())
-subscriber = tornadoredis.pubsub.SocketIOSubscriber(tornadoredis.Client())
+
 publisher = tornadoredis.Client()
 
 SERVICES = ['diag_sdk', "upload_tricklefeed"]
 
 
-class Handler(RequestHandler):
+class CISSubscriber(tornadoredis.pubsub.BaseSubscriber):
+    """
+    Use this class to send messages from the redis channel directly to
+    subscribers via SocketIO connection (thanks to Ofir Herzas)
+    """
+    def on_message(self, msg):
+        if not msg:
+            return
+        if msg.kind == 'message' and msg.body:
+            # Get the list of subscribers for this channel
+            subscribers = list(self.subscribers[msg.channel].keys())
+            if subscribers:
+                for subscriber in subscribers:
+                    subscriber.on_redis_message(msg.body)
+        super(CISSubscriber, self).on_message(msg)
 
-    @asynchronous
-    def post(self):
+
+subscriber = CISSubscriber(tornadoredis.Client())
+
+
+class MixIn(object):
+
+    def check_request(self, message):
         self.pubsub_topic = None
-
+        print(message)
         try:
-            data = json.loads(self.request.body)
-            my_uuid = hashlib.sha224(self.request.body).hexdigest()
+            data = json.loads(message)
+            my_uuid = hashlib.sha224(message).hexdigest()
         except ValueError:
             self.set_status(400)
             self.finish("Error parsing JSON")
-            return
+            return False
 
         service = data.get("service", "")
 
         if service not in SERVICES:
             self.set_status(400)
             self.finish("Invalid service " + service)
-            return
+            return False
 
         self.pubsub_topic = "/pushback_outgoing/" + my_uuid
         data['uuid'] = my_uuid
@@ -47,10 +68,43 @@ class Handler(RequestHandler):
         if success:
             publisher.publish("/pushback_incoming/" + self.service, json.dumps(self.data))
 
-    def on_message(self, result):
+
+class WSHandler(websocket.WebSocketHandler, MixIn):
+
+    def check_origin(self, origin):
+        return True
+
+    def set_status(self, status_code, reason=None):
+        pass
+
+    def finish(self, chunk=None):
+        self.write_message(chunk)
+        self.close()
+
+    def on_redis_message(self, result):
+        result_obj = json.loads(result)
+        self.set_status(result_obj['result_status'])
+        self.write_message(result_obj['result_payload'])
+
+    def on_message(self, message):
+        self.check_request(message)
+
+    def on_close(self):
+        if self.pubsub_topic:
+            subscriber.unsubscribe(self.pubsub_topic, self)
+
+
+class LongPollHandler(RequestHandler, MixIn):
+
+    @asynchronous
+    def post(self):
+        self.check_request(self.request.body)
+
+    def on_redis_message(self, result):
         result_obj = json.loads(result)
         self.set_status(result_obj['result_status'])
         self.finish(result_obj['result_payload'])
+
 
     def on_finish(self):
         if self.pubsub_topic:
@@ -62,9 +116,10 @@ class Handler(RequestHandler):
 
 
 application = tornado.web.Application([
-    (r"/pushback/", Handler),
+    (r'/pushback_ws/', WSHandler),
+    (r"/pushback_lp/", LongPollHandler),
 ])
 
 if __name__ == "__main__":
-    application.listen(8888)
+    application.listen(8080)
     tornado.ioloop.IOLoop.instance().start()
