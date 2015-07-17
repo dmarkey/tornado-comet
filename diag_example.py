@@ -9,7 +9,7 @@ class DiagSDKProcessor(IncomingProcessor):
 
         request_serialized = item.serialize()
         #Emulate serialising the request to database etc
-        time.sleep(10)
+        #time.sleep(10)
         #Emulate some diag activity...
 
         new_request = self.deserialize(request_serialized) # this can happen at any time on another process.

@@ -14,6 +14,8 @@ logging.getLogger().addHandler(logging.StreamHandler())
 
 publisher = tornadoredis.Client()
 
+client = tornadoredis.Client()
+
 SERVICES = ['diag_sdk', "upload_tricklefeed"]
 
 
@@ -44,7 +46,8 @@ class MixIn(object):
         print(message)
         try:
             data = json.loads(message)
-            my_uuid = hashlib.sha224(message).hexdigest()
+            #my_uuid = hashlib.sha224(message).hexdigest()
+            my_uuid = data['uuid']
         except ValueError:
             self.set_status(400)
             self.finish("Error parsing JSON")
@@ -57,16 +60,27 @@ class MixIn(object):
             self.finish("Invalid service " + service)
             return False
 
+        print(my_uuid)
         self.pubsub_topic = "/pushback_outgoing/" + my_uuid
         data['uuid'] = my_uuid
         self.data = data
         self.service = service
         logging.error(self.pubsub_topic)
-        subscriber.subscribe(self.pubsub_topic, self, callback=self.on_sub)
+
+        self.subscriber = CISSubscriber(client)
+        self.subscriber.subscribe(self.pubsub_topic, self, callback=self.on_sub)
 
     def on_sub(self, success):
         if success:
             publisher.publish("/pushback_incoming/" + self.service, json.dumps(self.data))
+        else:
+            print "Fail"
+
+    def done(self):
+        return
+        if self.pubsub_topic:
+            self.client.disconnect()
+            self.pubsub_topic = None
 
 
 class WSHandler(websocket.WebSocketHandler, MixIn):
@@ -90,8 +104,8 @@ class WSHandler(websocket.WebSocketHandler, MixIn):
         self.check_request(message)
 
     def on_close(self):
-        if self.pubsub_topic:
-            subscriber.unsubscribe(self.pubsub_topic, self)
+        self.done()
+
 
 
 class LongPollHandler(RequestHandler, MixIn):
@@ -104,15 +118,13 @@ class LongPollHandler(RequestHandler, MixIn):
         result_obj = json.loads(result)
         self.set_status(result_obj['result_status'])
         self.finish(result_obj['result_payload'])
-
+        self.done()
 
     def on_finish(self):
-        if self.pubsub_topic:
-            subscriber.unsubscribe(self.pubsub_topic, self)
+        self.done()
 
     def on_connection_close(self):
-        if self.pubsub_topic:
-            subscriber.unsubscribe(self.pubsub_topic, self)
+        self.done()
 
 
 application = tornado.web.Application([
@@ -122,4 +134,8 @@ application = tornado.web.Application([
 
 if __name__ == "__main__":
     application.listen(8080)
+    from tornado.log import enable_pretty_logging
+    from tornado.options import options
+    options.log_to_stderr = True
+    enable_pretty_logging(options=options)
     tornado.ioloop.IOLoop.instance().start()
