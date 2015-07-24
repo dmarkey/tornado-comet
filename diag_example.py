@@ -21,7 +21,7 @@ class DiagSDKProcessor(IncomingProcessor):
 
 
 def emulate_push():
-    print "Doing"
+    print "Doing a push.."
 
     global requests
 
